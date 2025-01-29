@@ -275,9 +275,12 @@ class Stage(HorillaModel):
     stage_types = [
         ("initial", _("Initial")),
         ("applied", _("Applied")),
-        ("test", _("Test")),
         ("interview", _("Interview")),
+        ("test", _("Test")),
+        ("technical_interview", _("Technical Interview")),
+        ("final_fit", _("Final Fit")),
         ("cancelled", _("Cancelled")),
+        ("offer", _("Offer")),
         ("hired", _("Hired")),
     ]
     recruitment_id = models.ForeignKey(
