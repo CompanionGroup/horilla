@@ -24,7 +24,6 @@ from django.contrib.auth.views import PasswordResetConfirmView, PasswordResetVie
 from django.core.files.base import ContentFile
 from django.core.mail import EmailMultiAlternatives
 from django.core.management import call_command
-from django.core.paginator import Paginator
 from django.db.models import ProtectedError, Q
 from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -32,11 +31,11 @@ from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.html import strip_tags
-from django.utils.timezone import localdate
 from django.utils.translation import gettext as _
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
+from accessibility.accessibility import ACCESSBILITY_FEATURE
 from accessibility.models import DefaultAccessibility
 from base.backends import ConfiguredEmailBackend
 from base.decorators import (
@@ -112,18 +111,14 @@ from base.methods import (
     format_date,
     generate_colors,
     get_key_instances,
-    get_pagination,
     is_reportingmanager,
     paginator_qry,
-    random_color_generator,
     sortby,
 )
 from base.models import (
     WEEK_DAYS,
     WEEKS,
-    Announcement,
     AnnouncementExpire,
-    AnnouncementView,
     BaserequestFile,
     BiometricAttendance,
     Company,
@@ -133,7 +128,6 @@ from base.models import (
     DynamicEmailConfiguration,
     DynamicPagination,
     EmployeeShift,
-    EmployeeShiftDay,
     EmployeeShiftSchedule,
     EmployeeType,
     Holidays,
@@ -220,15 +214,15 @@ def initialize_database_condition():
     Returns:
         bool: True if the database needs to be initialized, False otherwise.
     """
-    initialize_database = not User.objects.exists()
-    if not initialize_database:
-        initialize_database = True
+    init_database = not User.objects.exists()
+    if not init_database:
+        init_database = True
         superusers = User.objects.filter(is_superuser=True)
         for user in superusers:
             if hasattr(user, "employee_get"):
-                initialize_database = False
+                init_database = False
                 break
-    return initialize_database
+    return init_database
 
 
 def load_demo_database(request):
@@ -284,9 +278,7 @@ def initialize_database(request):
     if initialize_database_condition():
         if request.method == "POST":
             password = request._post.get("password")
-            from horilla.horilla_settings import DB_INIT_PASSWORD as db_password
-
-            if db_password == password:
+            if DB_INIT_PASSWORD == password:
                 return redirect(initialize_database_user)
             else:
                 messages.warning(
@@ -1025,7 +1017,9 @@ def user_group(request):
                     "model_name": model._meta.model_name,
                 }
             )
-        permissions.append({"app": app_name.capitalize(), "app_models": app_models})
+        permissions.append(
+            {"app": app_name.capitalize().replace("_", " "), "app_models": app_models}
+        )
     groups = Group.objects.all()
     return render(
         request,
@@ -1266,7 +1260,9 @@ def object_duplicate(request, obj_id, **kwargs):
     template = kwargs["template"]
     original_object = model.objects.get(id=obj_id)
     form = form_class(instance=original_object)
-    searchWords = form.get_template_language()
+    search_words = (
+        form.get_template_language() if hasattr(form, "get_template_language") else None
+    )
     if request.method == "GET":
         for field_name, field in form.fields.items():
             if isinstance(field, forms.CharField):
@@ -1290,7 +1286,7 @@ def object_duplicate(request, obj_id, **kwargs):
         kwargs.get("form_name", "form"): form,
         "obj_id": obj_id,
         "duplicate": True,
-        "searchWords": searchWords,
+        "searchWords": search_words,
     }
     return render(request, template, context)
 
@@ -1309,9 +1305,11 @@ def add_remove_dynamic_fields(request, **kwargs):
             - model (Model): The Django model class used for `ModelChoiceField`.
             - form_class (Form): The Django form class to which dynamic fields will be added.
             - template (str): The template used to render the newly added field.
-            - empty_label (str, optional): The label to show for empty choices in a `ModelChoiceField`.
+            - empty_label (str, optional): The label to show for empty choices in
+                a `ModelChoiceField`.
             - field_name_pre (str): The prefix for the dynamically generated field names.
-            - field_type (str, optional): The type of field to add, either "character" or "model_choice".
+            - field_type (str, optional): The type of field to add, either "character"
+                or "model_choice".
 
     Returns:
         HttpResponse: Returns the HTML for the newly added field, rendered in the context of the
@@ -3111,25 +3109,8 @@ def employee_permission_assign(request):
         ).distinct()
         context["show_assign"] = True
     permissions = []
-    horilla_apps = [
-        "base",
-        "recruitment",
-        "employee",
-        "leave",
-        "pms",
-        "onboarding",
-        "asset",
-        "attendance",
-        "payroll",
-        "auth",
-        "offboarding",
-        "horilla_documents",
-        "helpdesk",
-    ]
-    installed_apps = [app for app in settings.INSTALLED_APPS if app in horilla_apps]
-
     no_permission_models = NO_PERMISSION_MODALS
-    for app_name in installed_apps:
+    for app_name in APPS:
         app_models = []
         for model in get_models_in_app(app_name):
             if model._meta.model_name not in no_permission_models:
@@ -3237,7 +3218,9 @@ def permission_table(request):
                         "model_name": model._meta.model_name,
                     }
                 )
-        permissions.append({"app": app_name.capitalize(), "app_models": app_models})
+        permissions.append(
+            {"app": app_name.capitalize().replace("_", " "), "app_models": app_models}
+        )
     if request.method == "POST":
         form = AssignPermission(request.POST)
         if form.is_valid():
@@ -5210,9 +5193,6 @@ def enable_account_block_unblock(request):
     return HttpResponse(status=405)
 
 
-from accessibility.accessibility import ACCESSBILITY_FEATURE
-
-
 @login_required
 @permission_required("employee.change_employee")
 def enable_profile_edit_feature(request):
@@ -6539,8 +6519,7 @@ def activate_biometric_attendance(request):
 
 @login_required
 def get_horilla_installed_apps(request):
-    installed_apps = settings.INSTALLED_APPS
-    return JsonResponse({"installed_apps": installed_apps})
+    return JsonResponse({"installed_apps": APPS})
 
 
 def generate_error_report(error_list, error_data, file_name):
@@ -6591,7 +6570,7 @@ def get_upcoming_holidays(request):
     """
     Retrieve and display a list of upcoming holidays for the current month and year.
     """
-    today = localdate()  # This accounts for timezone-aware dates
+    today = timezone.localdate()
     current_month = today.month
     current_year = today.year
     holidays = Holidays.objects.filter(
