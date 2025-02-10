@@ -175,9 +175,19 @@ filter_mapping = {
 }
 
 
-def _check_reporting_manager(request):
-    employee = request.user.employee_get
-    return employee.reporting_manager.exists()
+def _check_reporting_manager(request, *args, **kwargs):
+    if kwargs.get("obj_id"):
+        obj_id = kwargs["obj_id"]
+        emp = Employee.objects.get(id=obj_id)
+        re_manager = None
+        if emp.employee_work_info.reporting_manager_id != None:
+            re_manager = emp.employee_work_info.reporting_manager_id
+        employee = request.user.employee_get
+        if re_manager != None:
+            return re_manager == employee
+        else:
+            return False
+    return request.user.employee_get.reporting_manager.exists()
 
 
 # Create your views here.
@@ -2767,6 +2777,7 @@ def birthday():
 
 
 @login_required
+@enter_if_accessible(feature="birthday_view", perm="employee.view_employee")
 def get_employees_birthday(request):
     """
     Render all upcoming birthday employee details for the dashboard.
